@@ -28,3 +28,10 @@ client/dist
 
 server/venv/
 server/.env
+
+*.db
+*.sqlite
+*.sqlite3
+users.db
+server/*.db
+
