@@ -1,5 +1,5 @@
-// Create a new component: DropboxAuth.tsx
 import React, { useState } from 'react';
+import API_BASE_URL from '../config';
 
 interface DropboxAuthProps {
     onAuthSuccess: () => void;
@@ -12,7 +12,7 @@ const DropboxAuth: React.FC<DropboxAuthProps> = ({ onAuthSuccess }) => {
 
     const startAuth = async () => {
         try {
-            const response = await fetch('http://localhost:5000/auth/dropbox');
+            const response = await fetch(`${API_BASE_URL}/auth/dropbox`);
             const result = await response.json();
             
             if (result.success) {
@@ -32,7 +32,7 @@ const DropboxAuth: React.FC<DropboxAuthProps> = ({ onAuthSuccess }) => {
 
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:5000/auth/dropbox/callback', {
+            const response = await fetch(`${API_BASE_URL}/auth/dropbox/callback`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',

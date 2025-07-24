@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import DropboxAuth from './components/DropboxAuth';
 import StaffRegistration from './components/StaffRegistration';
 import FileSubmission from './components/FileSubmission';

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import API_BASE_URL from '../config';
 
 interface Staff {
     id: number;
@@ -39,14 +40,13 @@ const FileSubmission: React.FC<FileSubmissionProps> = ({ staff, onBack }) => {
             submitData.append('postcode', formData.postcode);
             submitData.append('file_type', formData.file_type);
 
-            // Add all selected files
             Array.from(files).forEach(file => {
                 submitData.append('files', file);
             });
 
-            const response = await fetch('http://localhost:5000/submit-files', {
+            const response = await fetch(`${API_BASE_URL}/submit-files`, {
                 method: 'POST',
-                credentials:'include',
+                credentials: 'include',
                 body: submitData,
             });
 
@@ -55,7 +55,6 @@ const FileSubmission: React.FC<FileSubmissionProps> = ({ staff, onBack }) => {
             if (result.success) {
                 alert(`Files uploaded successfully!\nFolder: ${result.folder_path}\nFiles: ${result.files.join(', ')}`);
                 
-                // Reset form
                 setFiles(null);
                 (document.getElementById('fileInput') as HTMLInputElement).value = '';
             } else {
@@ -70,7 +69,7 @@ const FileSubmission: React.FC<FileSubmissionProps> = ({ staff, onBack }) => {
 
     return (
         <div style={{ maxWidth: '500px', margin: '0 auto', padding: '20px' }}>
-            <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#2c3e50', borderRadius: '4px' }}>
+            <div style={{ marginBottom: '20px', padding: '10px', backgroundColor: '#2c3e50', borderRadius: '4px', color: 'white' }}>
                 <h3>Welcome, {staff.name}!</h3>
                 <p><strong>Role:</strong> {staff.role}</p>
                 <p><strong>Base Folder:</strong> {staff.folder_path}</p>

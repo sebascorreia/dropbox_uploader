@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import API_BASE_URL from '../config';
 
 interface Company {
     id: number;
@@ -26,15 +27,14 @@ const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegistrationSuc
     });
     const [loading, setLoading] = useState(false);
 
-    // Fetch companies on component mount
     useEffect(() => {
         fetchCompanies();
     }, []);
 
     const fetchCompanies = async () => {
         try {
-            const response = await fetch('http://localhost:5000/companies', {
-                credentials: 'include' // Add this line too
+            const response = await fetch(`${API_BASE_URL}/companies`, {
+                credentials: 'include'
             });
             const result = await response.json();
             
@@ -53,7 +53,7 @@ const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegistrationSuc
         setLoading(true);
 
         try {
-            const response = await fetch('http://localhost:5000/register', {
+            const response = await fetch(`${API_BASE_URL}/register`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
