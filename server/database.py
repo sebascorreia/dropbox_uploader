@@ -58,6 +58,7 @@ def init_database():
                 ''')
     conn.commit()
     conn.close()
+    add_company("Emerald Green Energy", "info@egreen.co.uk", "08009991590", "One Canada Square, Level 8, London, E14 5AB")
     print("Database initialized successfully!")
 def add_company(name, contact_email=None, contact_phone=None, address=None):
     conn = get_db_connection()
