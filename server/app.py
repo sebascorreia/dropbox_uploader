@@ -8,7 +8,7 @@ app = Flask(__name__)
 PORT = int(os.environ.get('PORT',5000))
 CORS(app, supports_credentials=True, origins=[
     'http://localhost:5173',  # Development
-    'https://your-app-name.vercel.app'  # Production (update later)
+    'dropbox-uploader.vercel.app'  # Production (update later)
 ])
 init_database()
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
