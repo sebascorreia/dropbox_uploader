@@ -5,12 +5,18 @@ import dropbox, os, secrets
 from database import get_companies, add_staff, add_project, add_file_upload, init_database, get_db_connection
 load_dotenv()
 app = Flask(__name__)
-CORS(app, supports_credentials=True,origins=['http://localhost:5173'])
+PORT = int(os.environ.get('PORT',5000))
+CORS(app, supports_credentials=True, origins=[
+    'http://localhost:5173',  # Development
+    'https://your-app-name.vercel.app'  # Production (update later)
+])
 init_database()
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
 DROPBOX_APP_KEY = os.getenv("DROPBOX_APP_KEY")
 DROPBOX_APP_SECRET = os.getenv("DROPBOX_APP_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
+
+
 
 @app.route('/auth/dropbox', methods=['GET'])
 def dropbox_auth():
@@ -113,7 +119,7 @@ def register_staff():
             "success": False,
             "message": f"Registration failed: {str(e)}"
         }), 500
-@app.route('/submit-files', methods=['POST'])
+
 @app.route('/submit-files', methods=['POST'])
 def submit_files():
     try:
@@ -191,28 +197,5 @@ def submit_files():
             "message": f"Upload failed: {str(e)}"
         }), 500
 
-@app.route('/upload', methods = ['POST'])
-def upload():
-    try:
-        files = request.files.getlist('files')
-        uploaded_files = []
-        
-        for file in files:
-            path = f"/AutoFolder/{file.filename}"
-            dbx.files_upload(file.read(), path, mode=dropbox.files.WriteMode.overwrite)
-            uploaded_files.append(file.filename)
-        
-        return jsonify({
-            "success": True,
-            "message": "Files uploaded successfully!",
-            "files": uploaded_files
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "message": f"Upload failed: {str(e)}"
-        }), 500
-
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=False, host='0.0.0.0', port=PORT)
