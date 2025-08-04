@@ -2,6 +2,7 @@ import { useState } from 'react';
 import DropboxAuth from './components/DropboxAuth';
 import StaffRegistration from './components/StaffRegistration';
 import FileSubmission from './components/FileSubmission';
+import EligibilitySubmission from './components/EligibilitySubmission';
 import './App.css';
 
 interface Staff {
@@ -28,6 +29,19 @@ function App() {
     setCurrentStaff(null);
   };
 
+  // Determine which submission component to show based on role
+  const renderSubmissionComponent = () => {
+    if (!currentStaff) return null;
+    
+    // For Eligibility staff, show the specialized form
+    if (currentStaff.role === 'eligibility') {
+      return <EligibilitySubmission staff={currentStaff} onBack={handleBack} />;
+    }
+    
+    // For all other roles, show the standard form
+    return <FileSubmission staff={currentStaff} onBack={handleBack} />;
+  }
+
   return (
     <div className="App">
       <h1>E-Green File Management System</h1>
@@ -37,7 +51,7 @@ function App() {
       ) : !currentStaff ? (
         <StaffRegistration onRegistrationSuccess={handleRegistrationSuccess} />
       ) : (
-        <FileSubmission staff={currentStaff} onBack={handleBack} />
+        renderSubmissionComponent()
       )}
     </div>
   );

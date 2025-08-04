@@ -128,9 +128,11 @@ const StaffRegistration: React.FC<StaffRegistrationProps> = ({ onRegistrationSuc
                         style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
                     >
                         <option value="">Select Role</option>
+                        <option value="submissions">Submissions</option>
+                        <option value="eligibility">Eligibility</option>
                         <option value="survey">Survey</option>
-                        <option value="install">Install</option>
-                        <option value="maintenance">Maintenance</option>
+                        <option value="lead">Lead</option>
+                        <option value="epr">EPR</option>
                     </select>
                 </div>
 
