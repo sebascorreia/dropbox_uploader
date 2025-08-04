@@ -219,7 +219,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
 
             <h2>Eligibility Documents Submission</h2>
             
-            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
+            <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#646cffaa', borderRadius: '4px' }}>
                 <h3>Project Information</h3>
                 <div style={{ marginBottom: '15px' }}>
                     <label style={{ display: 'block', marginBottom: '5px' }}>Project Address:</label>
@@ -256,7 +256,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                         style={{ 
                             marginBottom: '15px', 
                             padding: '15px', 
-                            backgroundColor: documents[docType].uploaded ? '#d4edda' : '#f8f9fa',
+                            backgroundColor: documents[docType].uploaded ? '#646cffaa' : '#f8f9fa',
                             borderRadius: '4px',
                             border: `1px solid ${documents[docType].uploaded ? '#c3e6cb' : '#ddd'}`
                         }}
@@ -265,7 +265,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                             <h4 style={{ margin: 0 }}>{DOCUMENT_LABELS[docType]}</h4>
                             {documents[docType].uploaded && (
                                 <span style={{ 
-                                    backgroundColor: '#28a745', 
+                                    backgroundColor: '#646cffaa', 
                                     color: 'white', 
                                     padding: '2px 8px',
                                     borderRadius: '4px',
@@ -299,7 +299,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                                     disabled={uploading !== null || !documents[docType].file}
                                     style={{
                                         padding: '8px 16px',
-                                        backgroundColor: '#007bff',
+                                        backgroundColor: '#646cffaa',
                                         color: 'white',
                                         border: 'none',
                                         borderRadius: '4px',
@@ -314,7 +314,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                                 onClick={() => resetDocument(docType)}
                                 style={{
                                     padding: '5px 10px',
-                                    backgroundColor: '#6c757d',
+                                    backgroundColor: '#646cffaa',
                                     color: 'white',
                                     border: 'none',
                                     borderRadius: '4px',
@@ -334,7 +334,7 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                     style={{
                         flex: 1,
                         padding: '10px',
-                        backgroundColor: '#6c757d',
+                        backgroundColor: '#646cffaa',
                         color: 'white',
                         border: 'none',
                         borderRadius: '4px',
