@@ -125,58 +125,60 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
 
     // Upload a single document
     const uploadDocument = async (docType: string): Promise<boolean> => {
-        const file = documents[docType].file;
+    const file = documents[docType].file;
+    
+    if (!file) return false;
+    
+    setCurrentUploadingDoc(docType);
+    
+    try {
+        const submitData = new FormData();
+        submitData.append('staff_id', staff.id.toString());
+        submitData.append('address', address);
+        submitData.append('postcode', postcode);
         
-        if (!file) return false;
+        // Use "documents" as file_type for all documents
+        // This prevents creating separate subfolders for each document type
+        submitData.append('file_type', "documents");
         
-        setCurrentUploadingDoc(docType);
+        // Create a new Blob with the file content
+        const blob = file.slice(0, file.size, file.type);
         
-        try {
-            const submitData = new FormData();
-            submitData.append('staff_id', staff.id.toString());
-            submitData.append('address', address);
-            submitData.append('postcode', postcode);
-            submitData.append('file_type', docType);
-            
-            // Create a new Blob with the file content
-            const blob = file.slice(0, file.size, file.type);
-            
-            // Create a new File object with standardized name
-            const renamedFile = new File([blob], DOCUMENT_FILENAMES[docType], { type: 'application/pdf' });
-            
-            // Append the renamed file
-            submitData.append('files', renamedFile);
+        // Create a new File object with standardized name
+        const renamedFile = new File([blob], DOCUMENT_FILENAMES[docType], { type: 'application/pdf' });
+        
+        // Append the renamed file
+        submitData.append('files', renamedFile);
 
-            const response = await fetch(`${API_BASE_URL}/submit-files`, {
-                method: 'POST',
-                credentials: 'include',
-                body: submitData,
-            });
+        const response = await fetch(`${API_BASE_URL}/submit-files`, {
+            method: 'POST',
+            credentials: 'include',
+            body: submitData,
+        });
 
-            const result = await response.json();
+        const result = await response.json();
 
-            if (result.success) {
-                // Mark as uploaded and clear file input
-                setDocuments(prev => ({
-                    ...prev,
-                    [docType]: { file: null, uploaded: true }
-                }));
-                
-                // Reset file input
-                const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
-                if (fileInput) fileInput.value = '';
-                
-                return true;
-            } else {
-                alert(`Upload failed for ${DOCUMENT_LABELS[docType]}: ${result.message}`);
-                return false;
-            }
-        } catch (error) {
-            alert(`Upload error for ${DOCUMENT_LABELS[docType]}: ${(error as Error).message}`);
+        if (result.success) {
+            // Mark as uploaded and clear file input
+            setDocuments(prev => ({
+                ...prev,
+                [docType]: { file: null, uploaded: true }
+            }));
+            
+            // Reset file input
+            const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
+            if (fileInput) fileInput.value = '';
+            
+            return true;
+        } else {
+            alert(`Upload failed for ${DOCUMENT_LABELS[docType]}: ${result.message}`);
             return false;
         }
-    };
-
+    } catch (error) {
+        alert(`Upload error for ${DOCUMENT_LABELS[docType]}: ${(error as Error).message}`);
+        return false;
+    }
+};
     // Upload all documents that are selected but not yet uploaded
     const uploadAllDocuments = async () => {
         if (!address || !postcode) {
