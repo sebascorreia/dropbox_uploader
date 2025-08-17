@@ -4,6 +4,8 @@ import StaffRegistration from './components/StaffRegistration';
 import FileSubmission from './components/FileSubmission';
 import EligibilitySubmission from './components/EligibilitySubmission';
 import './App.css';
+import SurveySubmission from './components/SurveySubmission';
+import EPRSubmission from './components/EPRSubmission';
 
 interface Staff {
   id: number;
@@ -36,6 +38,12 @@ function App() {
     // For Eligibility staff, show the specialized form
     if (currentStaff.role === 'eligibility') {
       return <EligibilitySubmission staff={currentStaff} onBack={handleBack} />;
+    }
+    if (currentStaff.role ==='survey'){
+      return <SurveySubmission staff={currentStaff} onBack={handleBack} />;
+    }
+    if (currentStaff.role ==='epr'){
+      return <EPRSubmission staff={currentStaff} onBack={handleBack} />;
     }
     
     // For all other roles, show the standard form

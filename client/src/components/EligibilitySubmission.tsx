@@ -1,5 +1,10 @@
-import { useState } from 'react';
-import API_BASE_URL from '../config';
+import { useState, useEffect, useRef } from 'react';
+
+import { uploadFiles, checkRoleDocument, check } from '../helpers/apiHelpers';
+import FormField from './common/FormField';
+import FileUploadButton from '../components/common/FileUploadButton';
+import SubmitButton from '../components/common/SubmitButton';
+
 
 interface Staff {
     id: number;
@@ -18,7 +23,19 @@ interface EligibilitySubmissionProps {
 interface DocumentState {
     file: File | null;
     uploaded: boolean;
+    filePath?:string;
+    convert?: boolean;
 }
+const INITIAL_DOCUMENTS: {[key:string]: DocumentState} = {
+  council_tax: { file: null, uploaded: false, convert: true },
+  epr: { file: null, uploaded: false, convert: true },
+  flex_form: { file: null, uploaded: false, convert: true },
+  land_registration: { file: null, uploaded: false, convert: true },
+  nhs_referral: { file: null, uploaded: false, convert: true },
+  utility_bill: { file: null, uploaded: false, convert: true },
+  nhs_trail: { file: null, uploaded: false, convert: true },
+  la_declaration: {file:null, uploaded:false, convert:true}
+};
 
 // Available document types
 const DOCUMENT_TYPES = [
@@ -28,7 +45,8 @@ const DOCUMENT_TYPES = [
     "land_registration", 
     "nhs_referral", 
     "utility_bill", 
-    "quotation"
+    "nhs_trail",
+    "la_declaration",
 ];
 
 const DOCUMENT_LABELS: {[key: string]: string} = {
@@ -38,7 +56,9 @@ const DOCUMENT_LABELS: {[key: string]: string} = {
     land_registration: "Land Registration",
     nhs_referral: "NHS Referral",
     utility_bill: "Utility Bill",
-    quotation: "Quotation"
+    nhs_trail: "NHS Trail",
+    la_declaration:"LA Declaration",
+
 };
 
 // Add standardized file names
@@ -49,24 +69,111 @@ const DOCUMENT_FILENAMES: {[key: string]: string} = {
     land_registration: "Land_Registration.pdf",
     nhs_referral: "NHS_Referral.pdf",
     utility_bill: "Utility_Bill.pdf",
-    quotation: "Quotation.pdf"
+    nhs_trail: "NHS_Trail.pdf",
+    la_declaration:"LA_Declaration.pdf",
 };
 
 const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, onBack }) => {
     const [address, setAddress] = useState('');
     const [postcode, setPostcode] = useState('');
-    const [documents, setDocuments] = useState<{[key: string]: DocumentState}>({
-        council_tax: { file: null, uploaded: false },
-        epr: { file: null, uploaded: false },
-        flex_form: { file: null, uploaded: false },
-        land_registration: { file: null, uploaded: false },
-        nhs_referral: { file: null, uploaded: false },
-        utility_bill: { file: null, uploaded: false },
-        quotation: { file: null, uploaded: false }
-    });
+    const [loadingExistingFiles, setLoadingExistingFiles] = useState(false);
+    const [documents, setDocuments] = useState<{[key: string]: DocumentState}>(INITIAL_DOCUMENTS);
+    const loadKeyRef = useRef<string>('');
     const [uploading, setUploading] = useState<boolean>(false);
     const [currentUploadingDoc, setCurrentUploadingDoc] = useState<string | null>(null);
+    const [eligibilityFiles, setEligibilityFiles] = useState<{ [docType: string]: string[] }>({});
+
+    useEffect(() => {
+        const trimmedAddress = address.trim();
+        const trimmedPostcode = postcode.trim();
+        const key = `${trimmedAddress}|${trimmedPostcode}`.toUpperCase();
+
+        if (!trimmedAddress || !trimmedPostcode) {
+            if (loadKeyRef.current !== '') {
+                loadKeyRef.current = '';
+                setDocuments(INITIAL_DOCUMENTS);
+            }
+            return;
+        }
+
+        if (key !== loadKeyRef.current) {
+            loadKeyRef.current = key;
+            setDocuments(INITIAL_DOCUMENTS);
+        }
+
+        let cancelled = false;
+        const checkForExistingFiles = async () => {
+            setLoadingExistingFiles(true);
+            try {
+                const currentKey = loadKeyRef.current;
+                const updated = { ...INITIAL_DOCUMENTS };
+                for (const docType of DOCUMENT_TYPES) {
+                    const result = await checkRoleDocument({
+                        staffId: staff.id,
+                        address: trimmedAddress,
+                        postcode: trimmedPostcode,
+                        role: 'eligibility',
+                        docType,
+                        documentLabels: DOCUMENT_LABELS
+                    });
+                    if (cancelled || currentKey !== loadKeyRef.current) return;
+                    if (result.exists && result.filePath) {
+                        updated[docType] = { file: null, uploaded: true, filePath: result.filePath };
+                    }
+                }
+                if (currentKey === loadKeyRef.current && !cancelled) {
+                    setDocuments(updated);
+                }
+            } catch (e) {
+                if (!cancelled) console.error("Error checking for existing files:", e);
+            } finally {
+                if (!cancelled) setLoadingExistingFiles(false);
+            }
+        };
+        checkForExistingFiles();
+        return () => { cancelled = true; };
+    }, [address, postcode, staff.id]);
+
+    useEffect(() => {
+        const fetchEligibilityFiles = async () => {
+            if (!address || !postcode) {
+                setEligibilityFiles({});
+                return;
+            }
+            try {
+                // Generate the Eligibility folder path
+                const folderPath = `/ELIGIBILITY/${staff.folder_path.split('/')[1]}/${address.replace(/[^a-zA-Z0-9]/g, '_')}_${postcode.replace(/\s+/g, '')}`;
+                // Use your existing helper
+                const filesObj = await checkExistingFiles(folderPath, staff.id);
+
+                // Flatten all files in the folder (regardless of subfolder)
+                let allFiles: string[] = [];
+                Object.values(filesObj).forEach(arr => {
+                    if (Array.isArray(arr)) allFiles = allFiles.concat(arr);
+                });
+
+                // Group files by docType
+                const grouped: { [docType: string]: string[] } = {};
+                for (const docType of DOCUMENT_TYPES) {
+                    const label = DOCUMENT_LABELS[docType].replace(/\s+/g, '_');
+                    grouped[docType] = allFiles.filter(name =>
+                        name.toUpperCase().startsWith(label.toUpperCase())
+                    );
+                }
+                setEligibilityFiles(grouped);
+            } catch (e) {
+                setEligibilityFiles({});
+            }
+        };
+        fetchEligibilityFiles();
+    }, [address, postcode, staff.id]);
     
+    const groupFilesByDocType = (files: string[], docTypeLabel: string) => {
+        // docTypeLabel is e.g. "NHS_Referral"
+        return files.filter(name =>
+            name.toUpperCase().startsWith(docTypeLabel.toUpperCase())
+        );
+    };
     const isDuplicateFile = (docType: string, file: File | null): boolean => {
         if (!file) return false;
         
@@ -88,6 +195,14 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
         
         return false;
     };
+    // Toggle handler (only flex_form allowed to change)
+        const toggleConvert = (docType: string) => {
+        if (docType !== 'flex_form') return;
+        setDocuments(prev => ({
+            ...prev,
+            [docType]: { ...prev[docType], convert: !prev[docType].convert }
+        }));
+        };
 
     const handleFileChange = (docType: string, file: File | null) => {
         if (!file) {
@@ -97,21 +212,28 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
             }));
             return;
         }
-        
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+        const isWord = /\.(doc|docx|docm)$/i.test(file.name);
         // Check if the file is a PDF
-        if (!file.type.includes('pdf')) {
-            alert('Please upload PDF files only');
+        if (docType !== 'flex_form' && !isPdf) {
+            alert('Please upload PDF files only (Flex Form can be Word or PDF).');
+            const input = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
+            if (input) input.value = '';
+            return;
+        }
+        // Flex form must be PDF or Word
+        if (docType === 'flex_form' && !(isPdf || isWord)) {
+            alert('Flex Form must be a PDF or Word document (.doc/.docx).');
+            const input = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
+            if (input) input.value = '';
             return;
         }
         
         // Check if file is already selected for another document
         if (isDuplicateFile(docType, file)) {
-            alert('This file is already selected for another document. Each document must have a unique file.');
-            
-            // Reset the file input
-            const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
-            if (fileInput) fileInput.value = '';
-            
+            alert('This file is already selected for another document.');
+            const input = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
+            if (input) input.value = '';
             return;
         }
         
@@ -122,63 +244,106 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
         }));
     };
 
-
     // Upload a single document
     const uploadDocument = async (docType: string): Promise<boolean> => {
-    const file = documents[docType].file;
-    
-    if (!file) return false;
-    
-    setCurrentUploadingDoc(docType);
-    
-    try {
-        const submitData = new FormData();
-        submitData.append('staff_id', staff.id.toString());
-        submitData.append('address', address);
-        submitData.append('postcode', postcode);
+        const file = documents[docType].file;
+        const doc = documents[docType];
         
-        // Use "documents" as file_type for all documents
-        // This prevents creating separate subfolders for each document type
-        submitData.append('file_type', "documents");
+        if (!file) return false;
         
-        // Create a new Blob with the file content
-        const blob = file.slice(0, file.size, file.type);
+        setCurrentUploadingDoc(docType);
         
-        // Create a new File object with standardized name
-        const renamedFile = new File([blob], DOCUMENT_FILENAMES[docType], { type: 'application/pdf' });
-        
-        // Append the renamed file
-        submitData.append('files', renamedFile);
+        try {
+            const submitData = new FormData();
+            submitData.append('staff_id', staff.id.toString());
+            submitData.append('address', address);
+            submitData.append('postcode', postcode);
+            submitData.append('file_type', "");// eligibility root
 
-        const response = await fetch(`${API_BASE_URL}/submit-files`, {
-            method: 'POST',
-            credentials: 'include',
-            body: submitData,
-        });
+            const wantsConversion = docType === 'flex_form' ? doc.convert !== false : true;
+            let targetName = DOCUMENT_FILENAMES[docType];
+            let uploadFile: File | null = file; // may be replaced
+            const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+            const isWord = /\.(doc|docx|docm)$/i.test(file.name);
 
-        const result = await response.json();
+            if (docType === 'flex_form') {
+                if (isPdf) {
+                    uploadFile = new File([file], 'Flex_Form.pdf', { type: 'application/pdf' });
+                } else if (isWord) {
+                    if (wantsConversion) {
+                        // Append original Word file (server converts)
+                        submitData.append('files', file);
+                        submitData.append('convert_to_pdf', 'true');
+                        submitData.append('output_filename', 'Flex_Form.pdf');
+                        submitData.append('convert_files', file.name);
+                        uploadFile = null; // already appended original
+                    } else {
+                        const ext = file.name.split('.').pop();
+                        uploadFile = new File([file], `Flex_Form.${ext}`, { type: file.type });
+                    }
+                } else {
+                    alert('Flex Form must be PDF or Word');
+                    return false;
+                }
+            } else {
+                if (!isPdf) {
+                    // Append original file for server conversion
+                    submitData.append('files', file);
+                    submitData.append('convert_to_pdf', 'true');
+                    submitData.append('output_filename', targetName);
+                    submitData.append('convert_files', file.name);
+                    uploadFile = null; // already appended
+                } else {
+                    uploadFile = new File([file], targetName, { type: 'application/pdf' });
+                }
+            }
 
-        if (result.success) {
-            // Mark as uploaded and clear file input
-            setDocuments(prev => ({
-                ...prev,
-                [docType]: { file: null, uploaded: true }
-            }));
-            
-            // Reset file input
-            const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
-            if (fileInput) fileInput.value = '';
-            
-            return true;
-        } else {
-            alert(`Upload failed for ${DOCUMENT_LABELS[docType]}: ${result.message}`);
+            // Add user preference
+            submitData.append('convert_user_pref', wantsConversion ? 'true' : 'false');
+
+            if (uploadFile) {
+                const blob = uploadFile.slice(0, uploadFile.size, uploadFile.type);
+                const standardized = new File([blob], uploadFile.name, { type: uploadFile.type });
+                submitData.append('files', standardized);
+            }
+
+            // Use the helper function for file upload
+            const result = await uploadFiles(submitData, undefined, {
+                generatePath: true,
+                staffId: staff.id,
+                address,
+                postcode,
+                fileType: "" // root
+            });
+
+
+            if (result.success) {
+                setDocuments(prev => ({
+                    ...prev,
+                    [docType]: {
+                        file: null,
+                        uploaded: true,
+                        filePath: result.files && result.files[0] ? `${result.folder_path}/${result.files[0]}` : undefined,
+                        convert: doc.convert
+                    }
+                }));
+                
+                // Reset file input
+                const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
+                if (fileInput) fileInput.value = '';
+                return true;
+            } else {
+                alert(`Upload failed for ${DOCUMENT_LABELS[docType]}: ${result.message}`);
+                return false;
+            }
+        } catch (error) {
+            alert(`Upload error for ${DOCUMENT_LABELS[docType]}: ${(error as Error).message}`);
             return false;
+        } finally {
+            setCurrentUploadingDoc(null);
         }
-    } catch (error) {
-        alert(`Upload error for ${DOCUMENT_LABELS[docType]}: ${(error as Error).message}`);
-        return false;
-    }
-};
+    };
+
     // Upload all documents that are selected but not yet uploaded
     const uploadAllDocuments = async () => {
         if (!address || !postcode) {
@@ -222,10 +387,12 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
     const resetDocument = (docType: string) => {
         setDocuments(prev => ({
             ...prev,
-            [docType]: { file: null, uploaded: false }
+            [docType]: { 
+                file: null, 
+                uploaded: false,
+                convert: prev[docType].convert !== false  // preserve flex_form choice
+            }
         }));
-        
-        // Reset file input
         const fileInput = document.getElementById(`fileInput_${docType}`) as HTMLInputElement;
         if (fileInput) fileInput.value = '';
     };
@@ -245,29 +412,36 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
             
             <div style={{ marginBottom: '20px', padding: '15px', backgroundColor: '#1a2937', borderRadius: '4px', color: 'white' }}>
                 <h3>Project Information</h3>
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px' }}>Project Address:</label>
-                    <input
-                        type="text"
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        placeholder="e.g., 123 Main Street, London"
-                        required
-                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#333', color: 'white' }}
-                    />
-                </div>
-
-                <div style={{ marginBottom: '15px' }}>
-                    <label style={{ display: 'block', marginBottom: '5px' }}>Postcode:</label>
-                    <input
-                        type="text"
-                        value={postcode}
-                        onChange={(e) => setPostcode(e.target.value)}
-                        placeholder="e.g., SW1A 1AA"
-                        required
-                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: '#333', color: 'white' }}
-                    />
-                </div>
+                
+                {/* Replace with FormField components */}
+                <FormField
+                    label="Project Address"
+                    value={address}
+                    onChange={setAddress}
+                    placeholder="e.g., 123 Main Street, London"
+                    required={true}
+                />
+                
+                <FormField
+                    label="Postcode"
+                    value={postcode}
+                    onChange={setPostcode}
+                    placeholder="e.g., SW1A 1AA"
+                    required={true}
+                />
+                
+                {/* Add loading indicator here */}
+                {loadingExistingFiles && (
+                    <div style={{
+                        marginTop: '10px', 
+                        padding: '8px', 
+                        backgroundColor: 'rgba(52, 152, 219, 0.2)',
+                        borderRadius: '4px',
+                        textAlign: 'center'
+                    }}>
+                        <span>Checking for existing files...</span>
+                    </div>
+                )}
             </div>
 
             <div style={{ marginBottom: '20px' }}>
@@ -289,15 +463,29 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                             <h4 style={{ margin: 0, color: 'white' }}>{DOCUMENT_LABELS[docType]}</h4>
                             {documents[docType].uploaded && (
-                                <span style={{ 
-                                    backgroundColor: '#3498db', 
-                                    color: 'white', 
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    fontSize: '12px'
-                                }}>
-                                    Uploaded
-                                </span>
+                                <div>
+                                    <span style={{ 
+                                        backgroundColor: '#3498db', 
+                                        color: 'white', 
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '12px',
+                                        marginRight: '8px'
+                                    }}>
+                                        Uploaded
+                                    </span>
+                                    <ul style={{ margin: '8px 0 0 0', padding: 0, listStyle: 'none', color: '#b3e5fc', fontSize: '13px' }}>
+                                        {(eligibilityFiles[docType] || []).length > 0 ? (
+                                            eligibilityFiles[docType].map(fileName => (
+                                                <li key={fileName} style={{ marginBottom: 2 }}>
+                                                    <span style={{ color: '#b3e5fc' }}>{fileName}</span>
+                                                </li>
+                                            ))
+                                        ) : (
+                                            <li style={{ color: '#777', fontStyle: 'italic' }}>No files</li>
+                                        )}
+                                    </ul>
+                                </div>
                             )}
                             {documents[docType].file && !documents[docType].uploaded && (
                                 <span style={{ 
@@ -333,17 +521,34 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                         
                         {!documents[docType].uploaded ? (
                             <div>
-                                <div style={{ display: 'flex', marginBottom: '10px' }}>
-                                    <input
-                                        id={`fileInput_${docType}`}
-                                        type="file"
-                                        accept="application/pdf"
-                                        onChange={(e) => handleFileChange(docType, e.target.files?.[0] || null)}
-                                        style={{ flex: 1, padding: '8px', color: 'white' }}
-                                        disabled={uploading}
-                                    />
-                                </div>
-                                
+                                <FileUploadButton
+                                    id={`fileInput_${docType}`}
+                                    onChange={(files) => handleFileChange(docType, files?.[0] || null)}
+                                    accept={docType === 'flex_form'
+                                        ? "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx,.docm"
+                                        : "application/pdf"}
+                                    disabled={uploading}
+                                    label={`Select ${DOCUMENT_LABELS[docType]} File`}
+                                />
+                                {(() => {
+                                    const f = documents[docType].file;
+                                    const isPdf = f && (f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+                                    // Show checkbox only for flex_form when a non-PDF (Word) file is selected
+                                    if (docType === 'flex_form' && f && !isPdf) {
+                                        return (
+                                            <label style={{ display:'flex', alignItems:'center', gap:'6px', color:'#ccc', fontSize:'12px', marginTop:'6px' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={documents[docType].convert !== false}
+                                                    onChange={() => toggleConvert(docType)}
+                                                    disabled={documents[docType].uploaded || uploading || !documents[docType].file}
+                                                />
+                                                Convert to PDF (optional)
+                                            </label>
+                                        );
+                                    }
+                                    return null;
+                                })()}
                                 {documents[docType].file && (
                                     <p style={{ fontSize: '14px', color: '#aaa', margin: '5px 0' }}>
                                         Selected: {documents[docType].file.name} ({Math.round(documents[docType].file.size / 1024)} KB)
@@ -351,81 +556,52 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
                                 )}
                             </div>
                         ) : (
-                            <button
+                            <SubmitButton
                                 onClick={() => resetDocument(docType)}
                                 disabled={uploading}
-                                style={{
-                                    padding: '5px 10px',
-                                    backgroundColor: '#3498db',
-                                    color: 'white',
-                                    border: 'none',
-                                    borderRadius: '4px',
-                                    fontSize: '12px',
-                                    cursor: uploading ? 'not-allowed' : 'pointer',
-                                    opacity: uploading ? 0.7 : 1
+                                text="Replace"
+                                style={{ 
+                                    width: 'auto', 
+                                    padding: '5px 10px', 
+                                    fontSize: '12px' 
                                 }}
-                            >
-                                Replace
-                            </button>
+                            />
                         )}
                     </div>
                 ))}
 
-                {/* Main upload button for all documents */}
-                <button
+                {/* Replace with SubmitButton component */}
+                <SubmitButton
                     onClick={uploadAllDocuments}
-                    disabled={uploading || !anyDocumentsSelected}
-                    style={{
-                        width: '100%',
-                        padding: '12px',
-                        backgroundColor: anyDocumentsSelected ? '#3498db' : '#566573',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        fontSize: '16px',
-                        cursor: (uploading || !anyDocumentsSelected) ? 'not-allowed' : 'pointer',
-                        marginTop: '15px',
-                        opacity: (uploading || !anyDocumentsSelected) ? 0.7 : 1
-                    }}
-                >
-                    {uploading ? 'Uploading Documents...' : 'Upload All Selected Documents'}
-                </button>
+                    disabled={!anyDocumentsSelected || uploading}
+                    loading={uploading}
+                    loadingText="Uploading Documents..."
+                    text="Upload All Selected Documents"
+                    style={{ marginTop: '15px' }}
+                />
             </div>
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                <button
+                {/* Replace with SubmitButton components */}
+                <SubmitButton
                     onClick={onBack}
                     disabled={uploading}
-                    style={{
-                        flex: 1,
-                        padding: '10px',
-                        backgroundColor: '#566573',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: uploading ? 'not-allowed' : 'pointer',
-                        opacity: uploading ? 0.7 : 1
+                    text="Back"
+                    style={{ 
+                        flex: 1, 
+                        backgroundColor: '#566573'
                     }}
-                >
-                    Back
-                </button>
+                />
                 
-                <button
+                <SubmitButton
                     onClick={() => alert('All required documents have been uploaded!')}
                     disabled={!allDocumentsUploaded || uploading}
-                    style={{
-                        flex: 2,
-                        padding: '10px',
-                        backgroundColor: allDocumentsUploaded ? '#27ae60' : '#566573',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: (allDocumentsUploaded && !uploading) ? 'pointer' : 'not-allowed',
-                        opacity: (allDocumentsUploaded && !uploading) ? 1 : 0.7
+                    text="Complete Submission"
+                    style={{ 
+                        flex: 2, 
+                        backgroundColor: allDocumentsUploaded ? '#27ae60' : '#566573'
                     }}
-                >
-                    Complete Submission
-                </button>
+                />
             </div>
         </div>
     );

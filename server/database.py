@@ -82,9 +82,14 @@ def add_staff(name, company_id, role):
         # Generate folder path based on role and company
         cursor.execute('SELECT name FROM companies WHERE id = ?', (company_id,))
         company = cursor.fetchone()
-        company_name = company['name'].replace(' ', '_')
+        company_name = company['name'].replace(' ', '_').replace(',', '').replace('/', '_')
+        clean_name = name.replace(' ', '_').replace(',', '').replace('/', '_')
         
-        folder_path = f"/{role.title()}/{company_name}"
+        # Create folder path based on role
+        if role.lower() == 'survey':
+            folder_path = f"/{role.title()}/{company_name}/{clean_name}"
+        else:
+            folder_path = f"/{role.title()}/{company_name}"
         
         cursor.execute('''
             INSERT INTO staff (name, company_id, role, folder_path)
