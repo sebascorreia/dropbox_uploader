@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-import { uploadFiles, checkRoleDocument, check } from '../helpers/apiHelpers';
+import { uploadFiles, checkRoleDocument, checkExistingFiles, generatePath } from '../helpers/apiHelpers';
 import FormField from './common/FormField';
 import FileUploadButton from '../components/common/FileUploadButton';
 import SubmitButton from '../components/common/SubmitButton';
@@ -82,7 +82,6 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
     const [uploading, setUploading] = useState<boolean>(false);
     const [currentUploadingDoc, setCurrentUploadingDoc] = useState<string | null>(null);
     const [eligibilityFiles, setEligibilityFiles] = useState<{ [docType: string]: string[] }>({});
-
     useEffect(() => {
         const trimmedAddress = address.trim();
         const trimmedPostcode = postcode.trim();
@@ -134,46 +133,36 @@ const EligibilitySubmission: React.FC<EligibilitySubmissionProps> = ({ staff, on
         return () => { cancelled = true; };
     }, [address, postcode, staff.id]);
 
-    useEffect(() => {
-        const fetchEligibilityFiles = async () => {
-            if (!address || !postcode) {
-                setEligibilityFiles({});
-                return;
-            }
-            try {
-                // Generate the Eligibility folder path
-                const folderPath = `/ELIGIBILITY/${staff.folder_path.split('/')[1]}/${address.replace(/[^a-zA-Z0-9]/g, '_')}_${postcode.replace(/\s+/g, '')}`;
-                // Use your existing helper
-                const filesObj = await checkExistingFiles(folderPath, staff.id);
+useEffect(() => {
+    const fetchEligibilityFiles = async () => {
+        if (!address || !postcode) {
+            setEligibilityFiles({});
+            return;
+        }
+        try {
+            // Get the correct folder path from the backend
+            const folderPath = await generatePath(staff.id, address.trim(), postcode.trim(), "");
+            const filesObj = await checkExistingFiles(folderPath, staff.id);
 
-                // Flatten all files in the folder (regardless of subfolder)
-                let allFiles: string[] = [];
-                Object.values(filesObj).forEach(arr => {
-                    if (Array.isArray(arr)) allFiles = allFiles.concat(arr);
-                });
+            // Get all files in the folder (usually under one key)
+            const allFiles = Object.values(filesObj).flat();
 
-                // Group files by docType
-                const grouped: { [docType: string]: string[] } = {};
-                for (const docType of DOCUMENT_TYPES) {
-                    const label = DOCUMENT_LABELS[docType].replace(/\s+/g, '_');
-                    grouped[docType] = allFiles.filter(name =>
-                        name.toUpperCase().startsWith(label.toUpperCase())
-                    );
-                }
-                setEligibilityFiles(grouped);
-            } catch (e) {
-                setEligibilityFiles({});
+            // Group files by docType label
+            const grouped: { [docType: string]: string[] } = {};
+            for (const docType of DOCUMENT_TYPES) {
+                const label = DOCUMENT_LABELS[docType].replace(/\s+/g, '_');
+                grouped[docType] = allFiles.filter(name =>
+                    name.toUpperCase().startsWith(label.toUpperCase())
+                );
             }
-        };
-        fetchEligibilityFiles();
-    }, [address, postcode, staff.id]);
-    
-    const groupFilesByDocType = (files: string[], docTypeLabel: string) => {
-        // docTypeLabel is e.g. "NHS_Referral"
-        return files.filter(name =>
-            name.toUpperCase().startsWith(docTypeLabel.toUpperCase())
-        );
+            setEligibilityFiles(grouped);
+        } catch (e) {
+            setEligibilityFiles({});
+        }
     };
+    fetchEligibilityFiles();
+}, [address, postcode, staff.id]);
+    
     const isDuplicateFile = (docType: string, file: File | null): boolean => {
         if (!file) return false;
         
