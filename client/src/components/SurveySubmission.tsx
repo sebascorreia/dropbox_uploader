@@ -101,7 +101,7 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
     const [originalFiles, setOriginalFiles] = useState<Map<number, File[]>>(new Map());
     const loadKeyRef = useRef<string>('');
     const _uploadedPictureCount = uploadedPicturePaths.length;
-    const _existingFileCategories = Object.keys(existingFiles);
+
 
     // Add this useEffect hook to load files when address/postcode changes
    useEffect(() => {
@@ -450,8 +450,8 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
         // Generate smart filenames and check for conflicts
         const documentsFolder = existingFilesList.documents || [];
         const fileNameMap = generateSmartFileNames(fileGroups, documentsFolder, DOCUMENT_LABELS);
-        console.log('fileNameMap', fileNameMap); // usage to silence TS
-        const conflictingGroups = checkForConflicts(fileGroups, documentsFolder, fileNameMap);
+
+        const conflictingGroups = checkForConflicts(fileGroups, documentsFolder);
         
         const sessionFileNames: string[] = [];
         fileNameMap.forEach(fileNames => {
@@ -535,7 +535,7 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
         }
     };
         // Helper function to check for filename conflicts
-    const checkForConflicts = (groups: FileGroup[], existingFiles: string[], fileNameMap: Map<number, string[]>) => {
+    const checkForConflicts = (groups: FileGroup[], existingFiles: string[]) => {
         const conflicts: ConflictingGroup[] = [];
         
         for (const group of groups) {
