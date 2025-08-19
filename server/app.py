@@ -8,7 +8,7 @@ import traceback
 import time
 from helpers.path_creation import build_folder_path
 from werkzeug.utils import secure_filename
-from helpers.document_converter import convert_word_to_pdf, merge_pdfs
+from helpers.document_converter import convert_word_to_pdf, merge_pdfs, is_word_conversion_available
 from helpers.shared_file_uploader import copy_file_to_eligibility, remove_mirrored_if_shared
 
 
@@ -17,10 +17,6 @@ load_dotenv()
 app = Flask(__name__)
 PORT = int(os.environ.get('PORT',5000))
 
-CORS(app, supports_credentials=True, origins=[
-    'http://localhost:5173',  # Development
-    'https://dropbox-uploader.vercel.app'  # Production
-])
 
 init_database()
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(16))
@@ -37,7 +33,23 @@ DROPBOX_APP_KEY = os.getenv("DROPBOX_APP_KEY")
 DROPBOX_APP_SECRET = os.getenv("DROPBOX_APP_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
 
+ALLOWED_ORIGINS = {
+    "http://localhost:5173",
+    "https://dropbox-uploader.vercel.app"
+}
 
+CORS(app, supports_credentials=True, origins=list(ALLOWED_ORIGINS))
+
+@app.after_request
+def add_cors_headers(resp):
+    origin = request.headers.get("Origin")
+    if origin in ALLOWED_ORIGINS:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Vary"] = "Origin"
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS,PUT,DELETE"
+    return resp
 
 
 @app.route('/auth/dropbox', methods=['GET'])
@@ -447,41 +459,63 @@ def submit_files():
         temp_files_to_delete = []
         try:
             # Process files for conversion if needed
-            if convert_to_pdf and output_filename:
+            if convert_to_pdf:
                 # Create a temp directory for processing
                 with tempfile.TemporaryDirectory() as temp_dir:
                     # Save all files to temp directory
-                    temp_file_paths = []
-                    for file in files:
-                        temp_path = os.path.join(temp_dir, secure_filename(file.filename))
-                        file.save(temp_path)
-                        temp_file_paths.append(temp_path)
-                    # Convert Word documents to PDF
-                    pdf_paths = []
-                    for temp_path in temp_file_paths:
-                        if temp_path.lower().endswith(('.doc', '.docx', '.docm')):
-                            pdf_path = os.path.join(temp_dir, os.path.splitext(os.path.basename(temp_path))[0] + '.pdf')
-                            convert_word_to_pdf(temp_path, pdf_path)
-                            pdf_paths.append(pdf_path)
-                            temp_files_to_delete.append(pdf_path)  # Track for cleanup
+                    processed_paths = []
+                    for upl in files:
+                        orig_name = secure_filename(upl.filename)
+                        temp_in = os.path.join(temp_dir, orig_name)
+                        upl.save(temp_in)
+
+                        base_no_ext, ext = os.path.splitext(orig_name)
+                        ext_lower = ext.lower()
+                    if ext_lower in ('.doc', '.docx', '.docm'):
+                        target_pdf = os.path.join(temp_dir, base_no_ext + '.pdf')
+                        try:
+                            if is_word_conversion_available():
+                                convert_word_to_pdf(temp_in, target_pdf)
+                                processed_paths.append(target_pdf)
+                            else:
+                                raise RuntimeError("Conversion not available")
+                        except Exception as ce:
+                            print(f"[convert] Falling back to original ({orig_name}): {ce}")
+                            processed_paths.append(temp_in)
                         else:
-                            pdf_paths.append(temp_path)
-                    # If merging is required, handle that here (you'd need a PDF merging function)
-                    # For now, just upload the individual PDFs
-                    for pdf_path in pdf_paths:
-                        with open(pdf_path, 'rb') as f:
-                            file_data = f.read()
-                            file_name = os.path.basename(pdf_path)
-                            file_path = f"{folder_path}/{file_name}"
-                            
-                            dbx.files_upload(file_data, file_path, mode=write_mode)
-                            add_file_upload(staff_id, project_id, file_name, file_path)
-                            uploaded_files.append(file_name)
-                            uploaded_file_paths.append(file_path)
-                            if role == 'survey' and file_type == 'documents':
-                                copy_file_to_eligibility(dbx, company_name, address, postcode, file_name, file_data, user_requested_pdf=user_convert_pref)
-                            if role == 'epr' and file_type == 'pre' and file_name.upper().startswith('EPR'):
-                                copy_file_to_eligibility(dbx, company_name, address, postcode, file_name, file_data, target_override='EPR.pdf', user_requested_pdf=user_convert_pref)
+                            temp_files_to_delete.append(target_pdf)
+                    # If merge requested and we have at least 2 PDFs
+                if merge_files and output_filename:
+                    only_pdfs = [p for p in processed_paths if p.lower().endswith('.pdf')]
+                    if len(only_pdfs) >= 2:
+                        merged_path = os.path.join(temp_dir, secure_filename(output_filename))
+                        try:
+                            merge_pdfs(only_pdfs, merged_path)
+                            upload_set = [merged_path]
+                        except Exception as me:
+                            print(f"[merge] Failed, uploading individual files: {me}")
+                            upload_set = processed_paths
+                        else:
+                            upload_set = [merged_path]
+                    else:
+                        upload_set = processed_paths
+                else:
+                    upload_set = processed_paths
+
+                for local_path in upload_set:
+                    with open(local_path, 'rb') as f:
+                        file_data = f.read()
+                    file_name = os.path.basename(local_path)
+                    file_path = f"{folder_path}/{file_name}"
+                    dbx.files_upload(file_data, file_path, mode=write_mode)
+                    add_file_upload(staff_id, project_id, file_name, file_path)
+                    uploaded_files.append(file_name)
+                    uploaded_file_paths.append(file_path)
+                    # Mirroring rules
+                    if role == 'survey' and file_type == 'documents':
+                        copy_file_to_eligibility(dbx, company_name, address, postcode, file_name, file_data, user_requested_pdf=user_convert_pref)
+                    if role == 'epr' and file_type == 'pre' and file_name.upper().startswith('EPR'):
+                        copy_file_to_eligibility(dbx, company_name, address, postcode, file_name, file_data, target_override='EPR.pdf', user_requested_pdf=user_convert_pref)
             else:
                 # Handle individual file conversions
                 for file in files:
@@ -489,37 +523,40 @@ def submit_files():
                     original_filename = file.filename
                     
                     # Check if this file needs conversion
-                    if original_filename in convert_files or any(original_filename.lower().endswith(ext) for ext in ['.doc', '.docx', '.docm']):
-                        # Save to temp file
+                    # Inside the else: loop for file in files
+                    if original_filename in convert_files or any(original_filename.lower().endswith(ext) for ext in ('.doc', '.docx', '.docm')):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(original_filename)[1]) as temp:
                             temp.write(file_data)
                             temp_path = temp.name
-                        
-                        # Convert to PDF
                         pdf_filename = os.path.splitext(original_filename)[0] + '.pdf'
                         pdf_path = os.path.join(tempfile.gettempdir(), pdf_filename)
-                        convert_word_to_pdf(temp_path, pdf_path)
-                        
-                        # Upload the PDF instead
-                        with open(pdf_path, 'rb') as f:
-                            pdf_data = f.read()
-                            file_path = f"{folder_path}/{pdf_filename}"
-                            
-                            dbx.files_upload(pdf_data, file_path, mode=write_mode)
-                            add_file_upload(staff_id, project_id, pdf_filename, file_path)
-                            uploaded_files.append(pdf_filename)
-                            uploaded_file_paths.append(file_path)
-
-                            # Mirror correct converted file (pdf_filename/pdf_data)
-                            if role == 'survey' and file_type == 'documents':
-                                copy_file_to_eligibility(dbx, company_name, address, postcode, pdf_filename, pdf_data, user_requested_pdf=user_convert_pref)
-                            if role == 'epr' and file_type == 'pre' and pdf_filename.upper().startswith('EPR'):
-                                copy_file_to_eligibility(dbx, company_name, address, postcode, pdf_filename, pdf_data, target_override='EPR.pdf', user_requested_pdf=user_convert_pref)
-                            
-                        # Clean up temp files
-                        os.unlink(temp_path)
-                        os.unlink(pdf_path)
+                        use_converted = False
+                        try:
+                            if is_word_conversion_available():
+                                convert_word_to_pdf(temp_path, pdf_path)
+                                use_converted = True
+                            else:
+                                raise RuntimeError("Conversion not available")
+                        except Exception as ce:
+                            print(f"[convert] Skip Word->PDF ({original_filename}): {ce}")
+                        target_name = pdf_filename if use_converted else original_filename
+                        target_bytes = open(pdf_path, 'rb').read() if use_converted else file_data
+                        file_path = f"{folder_path}/{target_name}"
+                        dbx.files_upload(target_bytes, file_path, mode=write_mode)
+                        add_file_upload(staff_id, project_id, target_name, file_path)
+                        uploaded_files.append(target_name)
+                        uploaded_file_paths.append(file_path)
+                        if role == 'survey' and file_type == 'documents':
+                            copy_file_to_eligibility(dbx, company_name, address, postcode, target_name, target_bytes, user_requested_pdf=user_convert_pref)
+                        if role == 'epr' and file_type == 'pre' and target_name.upper().startswith('EPR'):
+                            copy_file_to_eligibility(dbx, company_name, address, postcode, target_name, target_bytes, target_override='EPR.pdf', user_requested_pdf=user_convert_pref)
+                        try:
+                            os.unlink(temp_path)
+                            if use_converted and os.path.exists(pdf_path):
+                                os.unlink(pdf_path)
+                        except: pass
                     else:
+
                         # Regular file upload (no conversion)
                         file_path = f"{folder_path}/{original_filename}"
                         dbx.files_upload(file_data, file_path, mode=write_mode)

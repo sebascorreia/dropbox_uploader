@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { convertImagesToPdf } from '../helpers/fileHelpers';
+
 import { uploadFiles, checkRoleDocument, checkExistingFiles, generatePath } from '../helpers/apiHelpers';
 import FormField from './common/FormField';
 import FileUploadButton from '../components/common/FileUploadButton';
