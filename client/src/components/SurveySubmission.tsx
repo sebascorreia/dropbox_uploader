@@ -96,6 +96,7 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
     const [uploadedPicturePaths, setUploadedPicturePaths] = useState<string[]>([]);
     const [nextGroupId, setNextGroupId] = useState(1);
     const [existingFiles, setExistingFiles] = useState<{[key: string]: string[]}>({});
+    void existingFiles;
     const [createdFileNames, setCreatedFileNames] = useState<string[]>([]);
     const [loadingExistingFiles, setLoadingExistingFiles] = useState(false);
     const [originalFiles, setOriginalFiles] = useState<Map<number, File[]>>(new Map());
