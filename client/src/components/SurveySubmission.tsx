@@ -100,6 +100,8 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
     const [loadingExistingFiles, setLoadingExistingFiles] = useState(false);
     const [originalFiles, setOriginalFiles] = useState<Map<number, File[]>>(new Map());
     const loadKeyRef = useRef<string>('');
+    const _uploadedPictureCount = uploadedPicturePaths.length;
+    const _existingFileCategories = Object.keys(existingFiles);
 
     // Add this useEffect hook to load files when address/postcode changes
    useEffect(() => {
@@ -448,6 +450,7 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
         // Generate smart filenames and check for conflicts
         const documentsFolder = existingFilesList.documents || [];
         const fileNameMap = generateSmartFileNames(fileGroups, documentsFolder, DOCUMENT_LABELS);
+        console.log('fileNameMap', fileNameMap); // usage to silence TS
         const conflictingGroups = checkForConflicts(fileGroups, documentsFolder, fileNameMap);
         
         const sessionFileNames: string[] = [];
@@ -1099,7 +1102,12 @@ const SurveySubmission: React.FC<SurveySubmissionProps> = ({ staff, onBack }) =>
                     <div style={{ backgroundColor: '#282828', padding: '20px', borderRadius: '4px' }}>
                         <h3 style={{ color: 'white', marginTop: 0 }}>Upload Survey Pictures</h3>
                         <p style={{ color: '#aaa' }}>Upload pictures of the property from your survey</p>
-                        
+                        {/* Show count if already uploaded */}
+                        {uploadedPictures && _uploadedPictureCount > 0 && (
+                            <p style={{ color:'#aaa', fontSize:'12px', marginTop:0 }}>
+                                {_uploadedPictureCount} picture(s) currently stored
+                            </p>
+                        )}
                         {/* File selection */}
                         <div style={{ marginBottom: '15px' }}>
                             <FileUploadButton
