@@ -5,9 +5,10 @@ import dropbox, os, secrets
 from database import get_companies, add_staff, add_project, add_file_upload, init_database, get_db_connection
 import tempfile
 import traceback
+import time
 from helpers.path_creation import build_folder_path
 from werkzeug.utils import secure_filename
-from helpers.document_converter import convert_word_to_pdf
+from helpers.document_converter import convert_word_to_pdf, merge_pdfs
 from helpers.shared_file_uploader import copy_file_to_eligibility, remove_mirrored_if_shared
 
 
@@ -127,7 +128,165 @@ def generate_path():
             "success": False,
             "message": f"Failed to generate path: {str(e)}"
         }), 500
+@app.route('/dropbox-download')
+def dropbox_download():
+    access_token = request.cookies.get('dropbox_token')
+    staff_id = request.args.get('staff_id')
+    file_path = request.args.get('file_path')
 
+    # Normalize path
+    if file_path and not file_path.startswith('/'):
+        file_path = '/' + file_path
+
+    if not access_token or not staff_id or not file_path:
+        return jsonify({"success": False, "message": "Missing parameters", "file_path": file_path}), 400
+
+    dbx = dropbox.Dropbox(access_token)
+    print(f"[dropbox-download] staff_id={staff_id} path={file_path}")
+
+    try:
+        md, res = dbx.files_download(file_path)
+        content_type = getattr(md, "content_type", None) or 'application/octet-stream'
+        return res.content, 200, {
+            'Content-Type': content_type,
+            'Content-Disposition': f'attachment; filename="{os.path.basename(file_path)}"'
+        }
+    except dropbox.exceptions.ApiError as e:
+        try:
+            is_not_found = e.error.is_path() and e.error.get_path().is_not_found()
+        except:
+            is_not_found = False
+        status = 404 if is_not_found else 500
+        print(f"[dropbox-download][ERROR] status={status} path={file_path} error={e}")
+        return jsonify({"success": False, "message": str(e), "path": file_path}), status
+    except Exception as e:
+        print(f"[dropbox-download][UNEXPECTED] path={file_path} error={e}")
+        return jsonify({"success": False, "message": str(e), "path": file_path}), 500
+    
+
+@app.route('/merge-pdfs', methods=['POST'])
+def merge_pdfs_endpoint():
+    try:
+        files = request.files.getlist('files')
+        staff_id = request.form.get('staff_id')
+        address = request.form.get('address')
+        postcode = request.form.get('postcode')
+        doc_type = request.form.get('doc_type')
+        output_filename = request.form.get('output_filename', 'Merged.pdf')
+
+        if not files or not staff_id or not address or not postcode or not doc_type:
+            return jsonify({"success": False, "message": "Missing required fields"}), 400
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pdf_paths = []
+            for upl in files:
+                name = upl.filename
+                print(f"[merge-pdfs] incoming name={name} size={upl.content_length}")
+                if not name.lower().endswith('.pdf'):
+                    return jsonify({"success": False, "message": f"Non-PDF file supplied: {name}"}), 400
+                temp_path = os.path.join(temp_dir, name)
+                upl.save(temp_path)
+                size = os.path.getsize(temp_path)
+                with open(temp_path, 'rb') as fh:
+                    header = fh.read(5)
+                print(f"[merge-pdfs] saved temp={temp_path} size={size} header={header}")
+                if size < 20:
+                    return jsonify({"success": False, "message": f"File {name} too small to be PDF (size {size})"}), 400
+                if header != b'%PDF-':
+                    return jsonify({"success": False, "message": f"File {name} invalid PDF header {header}"}), 400
+                pdf_paths.append(temp_path)
+
+            merged_path = os.path.join(temp_dir, output_filename)
+            try:
+                merge_pdfs(pdf_paths, merged_path)
+            except Exception as me:
+                print(f"[merge-pdfs] merge failure: {me}")
+                return jsonify({"success": False, "message": f"Merge failed: {me}"}), 500
+
+            access_token = request.cookies.get('dropbox_token')
+            if not access_token:
+                return jsonify({"success": False, "message": "Dropbox not connected"}), 401
+            dbx = dropbox.Dropbox(access_token)
+            from helpers.path_creation import build_folder_path
+            folder_path = build_folder_path('eligibility', '', '', address, postcode, '')
+            dropbox_path = f"{folder_path}/{output_filename}"
+            with open(merged_path, 'rb') as f:
+                dbx.files_upload(f.read(), dropbox_path, mode=dropbox.files.WriteMode.overwrite)
+            return jsonify({"success": True, "file_name": output_filename, "dropbox_path": dropbox_path}), 200
+    except Exception as e:
+        print("[merge-pdfs] ERROR:", e)
+        return jsonify({"success": False, "message": str(e)}), 500
+    
+# ...existing code...
+@app.route('/merge-pdfs-server', methods=['POST'])
+def merge_pdfs_server():
+    try:
+        access_token = request.cookies.get('dropbox_token')
+        data = request.json or {}
+        staff_id = data.get('staff_id')
+        address = data.get('address', '')
+        postcode = data.get('postcode', '')
+        file_names = data.get('file_names') or []
+        output_filename = data.get('output_filename') or 'Merged.pdf'
+
+        if not access_token:
+            return jsonify({"success": False, "message": "Dropbox not connected"}), 401
+        if not (staff_id and address and postcode and len(file_names) >= 2):
+            return jsonify({"success": False, "message": "Missing fields or need >=2 files"}), 400
+
+        # Lookup staff company for path
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT s.role, s.name, c.name as company_name
+            FROM staff s JOIN companies c ON s.company_id = c.id
+            WHERE s.id = ?
+        """, (staff_id,))
+        row = cur.fetchone()
+        conn.close()
+        if not row:
+            return jsonify({"success": False, "message": "Staff not found"}), 404
+        company_name = row['company_name']
+
+        dbx = dropbox.Dropbox(access_token)
+
+        # Build eligibility root (file_type empty)
+        folder_path = build_folder_path('eligibility', company_name, '', address, postcode, '')
+        if not folder_path.startswith('/'):
+            folder_path = '/' + folder_path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            local_paths = []
+            for name in file_names:
+                remote_path = f"{folder_path}/{name}"
+                print(f"[merge-pdfs-server] downloading {remote_path}")
+                try:
+                    md, res = dbx.files_download(remote_path)
+                except dropbox.exceptions.ApiError as e:
+                    return jsonify({"success": False, "message": f"Download failed {name}: {e}"}), 400
+                local_path = os.path.join(temp_dir, name)
+                with open(local_path, 'wb') as out:
+                    out.write(res.content)
+                with open(local_path, 'rb') as chk:
+                    if chk.read(5) != b'%PDF-':
+                        return jsonify({"success": False, "message": f"{name} not a PDF"}), 400
+                local_paths.append(local_path)
+
+            merged_path = os.path.join(temp_dir, output_filename)
+            merge_pdfs(local_paths, merged_path)
+
+            with open(merged_path, 'rb') as mf:
+                merged_bytes = mf.read()
+
+            dest_path = f"{folder_path}/{output_filename}"
+            dbx.files_upload(merged_bytes, dest_path, mode=dropbox.files.WriteMode.overwrite)
+            print(f"[merge-pdfs-server] merged -> {dest_path}")
+
+        return jsonify({"success": True, "dropbox_path": dest_path, "file_name": output_filename}), 200
+    except Exception as e:
+        print("[merge-pdfs-server][ERROR]", e)
+        return jsonify({"success": False, "message": str(e)}), 500
+# ...existing code...
 @app.route('/list-files', methods=['POST'])
 def list_files():
     try:
@@ -230,11 +389,14 @@ def submit_files():
 
         
         
-        if not all([staff_id, address, postcode, file_type, files]):
+        if not staff_id or not address or not postcode or not files:
             return jsonify({
                 "success": False,
-                "message": "All fields are required"
+                "message": "staff_id, address, postcode and at least one file are required"
             }), 400
+        # Normalize optional file_type
+        if file_type is None:
+            file_type = ''
         
         # Add project to database
         project_id = add_project(address, postcode)

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-
+import { convertImagesToPdf } from '../helpers/fileHelpers';
 import { uploadFiles, checkRoleDocument, checkExistingFiles, generatePath } from '../helpers/apiHelpers';
 import FormField from './common/FormField';
 import FileUploadButton from '../components/common/FileUploadButton';
@@ -332,6 +332,54 @@ useEffect(() => {
             setCurrentUploadingDoc(null);
         }
     };
+    // ...existing code...
+const handleMergeFiles = async (docType: string) => {
+    const fileNames = eligibilityFiles[docType] || [];
+    if (fileNames.length < 2) {
+        alert('Need at least two files to merge.');
+        return;
+    }
+    if (!address.trim() || !postcode.trim()) {
+        alert('Enter address and postcode first.');
+        return;
+    }
+    try {
+        setUploading(true);
+        const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000';
+        const res = await fetch(`${API_BASE}/merge-pdfs-server`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                staff_id: staff.id,
+                address: address.trim(),
+                postcode: postcode.trim(),
+                file_names: fileNames,
+                output_filename: `${DOCUMENT_LABELS[docType].replace(/\s+/g,'_')}_Merged.pdf`
+            })
+        });
+        const result = await res.json();
+        if (!res.ok || !result.success) {
+            throw new Error(result.message || 'Merge failed');
+        }
+        alert('Merged PDF uploaded successfully');
+        // Refresh list
+        const folderPath = await generatePath(staff.id, address.trim(), postcode.trim(), "");
+        const filesObj = await checkExistingFiles(folderPath, staff.id);
+        const allFiles = Object.values(filesObj).flat();
+        const grouped: { [k: string]: string[] } = {};
+        for (const dt of DOCUMENT_TYPES) {
+            const label = DOCUMENT_LABELS[dt].replace(/\s+/g, '_');
+            grouped[dt] = allFiles.filter(n => n.toUpperCase().startsWith(label.toUpperCase()));
+        }
+        setEligibilityFiles(grouped);
+    } catch (e:any) {
+        alert('Error merging files: ' + (e.message || e));
+    } finally {
+        setUploading(false);
+    }
+};
+
 
     // Upload all documents that are selected but not yet uploaded
     const uploadAllDocuments = async () => {
@@ -555,7 +603,23 @@ useEffect(() => {
                                     fontSize: '12px' 
                                 }}
                             />
+                            
                         )}
+                        {(eligibilityFiles[docType] || []).length > 1 && (
+                                    <SubmitButton
+                                        onClick={() => handleMergeFiles(docType)}
+                                        disabled={uploading}
+                                        text="Merge"
+                                        style={{ 
+                                            width: 'auto', 
+                                            padding: '5px 10px', 
+                                            fontSize: '12px',
+                                            marginLeft: '8px',
+                                            backgroundColor: '#27ae60'
+                                        }}
+                                    />
+                                    )}
+                        
                     </div>
                 ))}
 

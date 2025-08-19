@@ -75,28 +75,24 @@ def convert_word_to_pdf(word_file_path, output_pdf_path=None):
 
 
 def merge_pdfs(pdf_files, output_path):
-    """
-    Merge multiple PDF files into one.
-    
-    Args:
-        pdf_files: List of paths to PDF files to merge
-        output_path: Path where the merged PDF will be saved
-        
-    Returns:
-        Path to the merged PDF
-    """
+    from PyPDF2 import PdfMerger
+    merger = PdfMerger()
     try:
-        from PyPDF2 import PdfMerger
-        
-        merger = PdfMerger()
-        
         for pdf in pdf_files:
+            # Basic validation
+            if not os.path.exists(pdf):
+                raise ValueError(f"File missing: {pdf}")
+            size = os.path.getsize(pdf)
+            if size == 0:
+                raise ValueError(f"Empty PDF: {pdf}")
+            with open(pdf, 'rb') as fh:
+                header = fh.read(5)
+                if header != b'%PDF-':
+                    raise ValueError(f"Invalid PDF header in {os.path.basename(pdf)}")
+            # Let PyPDF2 open the path itself (safer than passing a closed handle)
             merger.append(pdf)
-            
-        merger.write(output_path)
-        merger.close()
-        
+        with open(output_path, "wb") as f_out:
+            merger.write(f_out)
         return output_path
-    except ImportError:
-        print("PyPDF2 is required for PDF merging. Install with: pip install PyPDF2")
-        raise
+    finally:
+        merger.close()
